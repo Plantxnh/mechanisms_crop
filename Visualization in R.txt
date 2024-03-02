@@ -1,0 +1,108 @@
+Shannon index and richness-R
+#read data
+genus <- read.delim('genus.txt', row.names = 1, sep = '\t', stringsAsFactors = FALSE, check.names = FALSE)
+genus <- t(genus)
+
+library(vegan)
+library(picante)
+
+#Richness
+richness <- rowSums(genus > 0)
+
+#Shannon
+shannon_index <- diversity(genus, index = 'shannon', base = exp(1))
+
+#export
+write.csv(richness, 'richness.csv', quote = FALSE)
+write.csv(shannon_index, 'shannon_index', quote = FALSE)
+
+
+t test-limma.R
+
+install.packages("limma")
+library(limma)
+
+group <- factor(c("control", "control", "treatment", "treatment"))
+
+design <- model.matrix(~ group)
+
+eset <- ExpressionSet(exprs = as.matrix(data), phenoData = DataFrame(group))
+
+fit <- lmFit(eset, design)
+fit <- eBayes(fit)
+
+topTable <- topTable(fit, coef = 2, number = Inf)
+
+print(topTable)
+
+
+wilcox. test-R
+gene_data <- read.csv("gene_data.csv", header = TRUE, row.names = 1)
+
+significance_results <- data.frame(Gene = rownames(gene_data), p_value = numeric(nrow(gene_data)))
+
+for (i in 1:nrow(gene_data)) {
+    gene_expr <- gene_data[i, ]
+    result <- wilcox.test(gene_expr ~ group)
+    significance_results$p_value[i] <- result$p.value
+}
+
+print(significance_results)
+
+Correlation-R
+
+setwd(wd)
+library(psych)
+library(foreach) 
+library(doParallel) 
+library(abind)
+#read in data
+otu_table = read.table('OTU.txt', sep="\t", header=T)
+head(otu_table)
+#run
+network_construct <- function(otu_table,threads){
+otu_table2 <- apply(otu_table,2,rank) 
+r <- function(rx,ry){ 
+n <- length(rx) 
+lxy <- sum((rx-mean(rx))*(ry-mean(ry))) 
+lxx <- sum((rx-mean(rx))^2) 
+lyy <- sum((ry-mean(ry))^2) 
+r <- lxy/sqrt(lxx*lyy) 
+t <- (r * sqrt(n - 2))/sqrt(1 - r^2) 
+p <- -2 * expm1(pt(abs(t), (n - 2), log.p = TRUE)) 
+return(c(r,p)) 
+}
+arraybind <- function(...){ 
+abind(...,along = 3,force.array=TRUE) 
+}
+nc <- ncol(otu_table) 
+registerDoParallel(cores = 16) 
+corr <- foreach (i = 1:nc,.combine = "arraybind") %dopar%{ 
+corr1 <- matrix(rep(0,2*nc),nrow = 2,ncol=nc) 
+for(j in 1:nc) { 
+if(j > i) corr1[,j] <- r(otu_table2[,i],otu_table2[,j]) 
+}
+corr <- corr1 
+}
+rr <- corr[1,,] 
+rr <- rr+t(rr) 
+diag(rr) <- 1 
+pp <- corr[2,,] 
+lp <- lower.tri(pp) 
+pa <- pp[lp] 
+pa <- p.adjust(pa, "fdr") 
+pp[lower.tri(pp, diag = FALSE)] <- pa 
+pp <- pp+t(pp) 
+rownames(pp) <- colnames(otu_table) 
+colnames(pp) <- colnames(otu_table) 
+rownames(rr) <- colnames(otu_table) 
+colnames(rr) <- colnames(otu_table) 
+return(list(r = rr,p = pp))
+
+}
+occor <- network_construct(otu_table[,1:2068],8)
+R <- data.frame(occor$r)
+P <- data.frame(occor$p)
+R[P>0.05|abs(R)<0.6] = 0
+
+write.csv(R, 'correlation_network.csv', quote = FALSE)
